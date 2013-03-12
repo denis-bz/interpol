@@ -1,0 +1,15 @@
+# from: test-interpol.py dim=5
+# run: 12 Mar 2013 16:46  in ~bz/py/interpol/test  i486  mac 10.7.4 
+
+--------------------------------------------------------------------------------
+versions: numpy 1.6.2  scipy 0.11.0  python 2.7.3
+test-interpol.py  shape [10, 10, 10, 10, 10]  nquery 1000000 
+
+ 102 ms  |Barypol   - exact|  cos_xav: av 4.5  max 15 = -235 - -250  at [ 0.28  0.06  0.62  0.95  0.62]
+ 506 ms  |Intergrid - exact|  cos_xav: av 1.5  max 3 = -247 - -250  at [ 0.5   0.72  0.5   0.05  0.72]
+
+  95 ms  |Barypol   - exact|  volripple: av 6.9  max 20 = 23.4 - 3.6  at [ 0.47  0.69  0.36  0.25  0.73]
+ 506 ms  |Intergrid - exact|  volripple: av 6.2  max 20 = 20.8 - 1.05  at [ 0.01  0.02  0.84  0.02  0.85]
+
+  95 ms  |Barypol   - exact|  parabola: av 2.1  max 5 = -412 - -417  at [ 0.28  0.06  0.62  0.95  0.62]
+ 503 ms  |Intergrid - exact|  parabola: av 0.69  max 1 = -403 - -404  at [ 0.5   0.72  0.83  0.17  0.72]
