@@ -8,10 +8,12 @@ try:
 except ImportError:
     str2g = str3g = str
 
-def avmaxdiff( interpol, exact, query_points ):
+def avmaxdiff( interpol, exact, query_points=None ):
     absdiff = np.fabs( interpol - exact )
     av = absdiff.mean()
     jmax = absdiff.argmax()  # flat
-    print "av %.2g  max %.2g = %.3g - %.3g  at %s" % (
-        av, absdiff[jmax], interpol[jmax], exact[jmax], query_points[jmax] )
+    at = "at %s" % query_points[jmax]  if query_points is not None \
+        else ""
+    return "av %.2g  max %.2g = %.3g - %.3g  %s" % (
+        av, absdiff[jmax], interpol[jmax], exact[jmax], at )
 

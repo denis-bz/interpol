@@ -19,14 +19,14 @@ in between the grid points.
     lo = np.array([ 52, -10 ])  # lowest lat, lowest lon
     hi = np.array([ 55, -6 ])   # highest lat, highest lon
 
-        # set up an interpolator function "intergrid()" with class Intergrid --
-    intergrid = Intergrid( griddata, lo=lo, hi=hi )
+        # set up an interpolator function "interfunc()" with class Intergrid --
+    interfunc = Intergrid( griddata, lo=lo, hi=hi )
 
         # generate 1000 random query points, lo <= [lat, lon] <= hi --
     query_points = lo + np.random.uniform( size=(1000, 2) ) * (hi - lo)
 
         # get rainfall at the 1000 query points --
-    query_values = intergrid( query_points )  # -> 1000 values
+    query_values = interfunc( query_points )  # -> 1000 values
 
 What this does:
     for each [lat, lon] in query_points:
@@ -35,8 +35,8 @@ What this does:
         2) do bilinear (multilinear) interpolation in that square,
             using `scipy.ndimage.map_coordinates` .
 Check:
-    intergrid( lo ) -> griddata[0, 0],
-    intergrid( hi ) -> griddata[-1, -1] i.e. griddata[3, 4]
+    interfunc( lo ) -> griddata[0, 0],
+    interfunc( hi ) -> griddata[-1, -1] i.e. griddata[3, 4]
 
 Parameters
 ----------
@@ -48,7 +48,10 @@ Parameters
         copy=False overwrites query_points, runs in less memory
     verbose: default 1: print a 1-line summary for each call, with run time
     order=1: see `map_coordinates`
-    prefilter=False: ""
+    prefilter: 0 or False, the default: smoothing B-spline
+              1 or True: exact-fit interpolating spline (IIR, not C-R)
+              1/3: Mitchell-Netravali spline, 1/3 B + 2/3 fit
+        (prefilter is only for order > 1, since order = 1 interpolates)
 
 Non-uniform rectangular grids
 -----------------------------
@@ -59,7 +62,7 @@ before interpolation, like this:
     lo = np.array([ 50, -10 ])
     hi = np.array([ 60, -6 ])
     maps = [[50, 52, 62, 63], None]  # uniformize lat, linear lon
-    intergrid = Intergrid( griddata, lo=lo, hi=hi, maps=maps )
+    interfunc = Intergrid( griddata, lo=lo, hi=hi, maps=maps )
 
 This will map (transform, stretch, warp) the lats in query_points column 0
 to array coordinates in the range 0 .. 3, using `np.interp` to do
@@ -80,9 +83,9 @@ from __future__ import division
 from time import time
 # warnings
 import numpy as np
-from scipy.ndimage import map_coordinates
+from scipy.ndimage import map_coordinates, spline_filter
 
-__version__ = "2013-03-11 Mar denis"
+__version__ = "2013-07-01 jul denis"
 __author_email__ = "denis-bz-py@t-online.de"  # comments welcome, testcases most welcome
 
 #...............................................................................
@@ -91,22 +94,32 @@ class Intergrid:
 
     def __init__( self, griddata, lo, hi, maps=[], copy=True, verbose=1,
             order=1, prefilter=False ):
-        self.griddata = np.asanyarray( griddata )
+        griddata = np.asanyarray( griddata )
+        dim = griddata.ndim  # - (griddata.shape[-1] == 1)  # ??
+        assert dim >= 2, griddata.shape
+        self.dim = dim
+        if np.isscalar(lo):
+            lo *= np.ones(dim)
+        if np.isscalar(hi):
+            hi *= np.ones(dim)
+        assert lo.shape == (dim,), lo.shape
+        assert hi.shape == (dim,), hi.shape
         self.loclip = lo = np.asarray_chkfinite( lo ).copy()
         self.hiclip = hi = np.asarray_chkfinite( hi ).copy()
-        self.order = order
-        self.prefilter = prefilter
         self.copy = copy
         self.verbose = verbose
-        self.dim = self.griddata.ndim
-        assert self.dim >= 2, self.griddata.shape
-        assert lo.shape == (self.dim,), lo.shape
-        assert hi.shape == (self.dim,), hi.shape
+        self.order = order
+        if order > 1  and 0 < prefilter < 1:  # 1/3: Mitchell-Netravali = 1/3 B + 2/3 fit
+            exactfit = spline_filter( griddata )  # see Unser
+            griddata += prefilter * (exactfit - griddata)
+            prefilter = False
+        self.griddata = griddata
+        self.prefilter = (prefilter == True)
 
         self.nmap = 0
         if maps != []:  # sanity check maps --
-            assert len(maps) == self.dim, "maps must have len %d, not %d" % (
-                self.dim, len(maps))
+            assert len(maps) == dim, "maps must have len %d, not %d" % (
+                dim, len(maps))
             for j, (map, n, l, h) in enumerate( zip( maps, griddata.shape, lo, hi )):
                 if map is None  or  callable(map):
                     lo[j], hi[j] = 0, 1
@@ -123,7 +136,7 @@ class Intergrid:
         self.maps = maps
         self._lo = lo  # caller's lo for linear, 0 nonlinear maps
         shape_1 = np.array( self.griddata.shape, float ) - 1
-        self._linearmap = np.where( hi > lo, shape_1 / (hi - lo), 0 )
+        self._linearmap = shape_1 / np.where( hi > lo, hi - lo, np.inf )  # 25jun
 
 #...............................................................................
     def __call__( self, X, out=None ):
@@ -138,10 +151,10 @@ class Intergrid:
         if self.copy:
             X = X.copy()
         assert X.ndim == 2, X.shape
+        npt = X.shape[0]
         if out is None:
             out = np.empty( npt, dtype=self.griddata.dtype )
         t0 = time()
-        npt = X.shape[0]
         np.clip( X, self.loclip, self.hiclip, out=X )  # inplace
             # X nonlinear maps inplace --
         for j, map in enumerate(self.maps):
