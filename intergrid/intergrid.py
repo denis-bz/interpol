@@ -60,7 +60,7 @@ say [50, 52, 62, 63] ?  `Intergrid` can "uniformize" these
 before interpolation, like this:
 
     lo = np.array([ 50, -10 ])
-    hi = np.array([ 60, -6 ])
+    hi = np.array([ 63, -6 ])
     maps = [[50, 52, 62, 63], None]  # uniformize lat, linear lon
     interfunc = Intergrid( griddata, lo=lo, hi=hi, maps=maps )
 
@@ -85,7 +85,7 @@ from time import time
 import numpy as np
 from scipy.ndimage import map_coordinates, spline_filter
 
-__version__ = "2013-07-01 jul denis"
+__version__ = "2014-01-15 jan denis"  # 15jan: fix bug in linear scaling
 __author_email__ = "denis-bz-py@t-online.de"  # comments welcome, testcases most welcome
 
 #...............................................................................
@@ -102,10 +102,10 @@ class Intergrid:
             lo *= np.ones(dim)
         if np.isscalar(hi):
             hi *= np.ones(dim)
-        assert lo.shape == (dim,), lo.shape
-        assert hi.shape == (dim,), hi.shape
         self.loclip = lo = np.asarray_chkfinite( lo ).copy()
         self.hiclip = hi = np.asarray_chkfinite( hi ).copy()
+        assert lo.shape == (dim,), lo.shape
+        assert hi.shape == (dim,), hi.shape
         self.copy = copy
         self.verbose = verbose
         self.order = order
@@ -116,15 +116,26 @@ class Intergrid:
         self.griddata = griddata
         self.prefilter = (prefilter == True)
 
+        self.maps = maps
         self.nmap = 0
-        if maps != []:  # sanity check maps --
+        if len(maps) > 0:
             assert len(maps) == dim, "maps must have len %d, not %d" % (
-                dim, len(maps))
+                    dim, len(maps))
+            # linear maps (map None): Xcol -= lo *= scale -> [0, n-1]
+            # nonlinear: np.interp e.g. [50 52 62 63] -> [0 1 2 3]
+            self._lo = np.zeros(dim)
+            self._scale = np.ones(dim)
+
             for j, (map, n, l, h) in enumerate( zip( maps, griddata.shape, lo, hi )):
-                if map is None  or  callable(map):
-                    lo[j], hi[j] = 0, 1
+                ## print "test: j map n l h:", j, map, n, l, h
+                if map is None  or callable(map):
+                    self._lo[j] = l
+                    if h > l:
+                        self._scale[j] = (n - 1) / (h - l)  # _map lo -> 0, hi -> n - 1
+                    else:
+                        self._scale[j] = 0  # h <= l: X[:,j] -> 0
                     continue
-                maps[j] = map = np.asanyarray(map)
+                self.maps[j] = map = np.asanyarray(map)
                 self.nmap += 1
                 assert len(map) == n, "maps[%d] must have len %d, not %d" % (
                     j, n, len(map) )
@@ -133,10 +144,26 @@ class Intergrid:
                     print "Warning: Intergrid maps[%d] min %.3g max %.3g " \
                         "are outside lo %.3g hi %.3g" % (
                         j, mlo, mhi, l, h )
-        self.maps = maps
-        self._lo = lo  # caller's lo for linear, 0 nonlinear maps
-        shape_1 = np.array( self.griddata.shape, float ) - 1
-        self._linearmap = shape_1 / np.where( hi > lo, hi - lo, np.inf )  # 25jun
+
+#...............................................................................
+    def _map_to_uniform_grid( self, X ):
+        """ clip, map X linear / nonlinear  inplace """
+        np.clip( X, self.loclip, self.hiclip, out=X )
+            # X nonlinear maps inplace --
+        for j, map in enumerate(self.maps):
+            if map is None:
+                continue
+            if callable(map):
+                X[:,j] = map( X[:,j] )  # clip again ?
+            else:
+                    # PWL e.g. [50 52 62 63] -> [0 1 2 3] --
+                X[:,j] = np.interp( X[:,j], map, np.arange(len(map)) )
+
+            # linear map the rest, inplace (nonlinear _lo 0, _scale 1: noop)
+        if self.nmap < self.dim:
+            X -= self._lo
+            X *= self._scale  # (griddata.shape - 1) / (hi - lo)
+        ## print "test: _map_to_uniform_grid", X.T
 
 #...............................................................................
     def __call__( self, X, out=None ):
@@ -155,22 +182,7 @@ class Intergrid:
         if out is None:
             out = np.empty( npt, dtype=self.griddata.dtype )
         t0 = time()
-        np.clip( X, self.loclip, self.hiclip, out=X )  # inplace
-            # X nonlinear maps inplace --
-        for j, map in enumerate(self.maps):
-            if map is None:
-                continue
-            if callable(map):
-                X[:,j] = map( X[:,j] )  # clip again ?
-            else:
-                # PWL e.g. [50 52 62 63] -> [0 1 2 3] --
-                X[:,j] = np.interp( X[:,j], map, np.arange(len(map)) )
-            # linear map the rest, inplace (affine_transform ?)
-        if self.nmap < self.dim:
-            X -= self._lo
-            X *= self._linearmap  # (griddata.shape - 1) / (hi - lo)
-        ## print "test X:", X[0]
-
+        self._map_to_uniform_grid( X )  # X inplace
 #...............................................................................
         map_coordinates( self.griddata, X.T,
             order=self.order, prefilter=self.prefilter,
