@@ -92,7 +92,7 @@ __author_email__ = "denis-bz-py@t-online.de"  # comments welcome, testcases most
 class Intergrid:
     __doc__ = globals()["__doc__"]
 
-    def __init__( self, griddata, lo, hi, maps=[], copy=True, verbose=1,
+    def __init__( self, griddata, lo, hi, maps=None, copy=True, verbose=1,
             order=1, prefilter=False ):
         griddata = np.asanyarray( griddata )
         dim = griddata.ndim  # - (griddata.shape[-1] == 1)  # ??
@@ -115,6 +115,9 @@ class Intergrid:
             prefilter = False
         self.griddata = griddata
         self.prefilter = (prefilter == True)
+
+        if maps is None:
+            maps = [None,] * len(lo)
 
         self.maps = maps
         self.nmap = 0
