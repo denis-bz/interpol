@@ -85,7 +85,7 @@ from time import time
 import numpy as np
 from scipy.ndimage import map_coordinates, spline_filter
 
-__version__ = "2014-01-15 jan denis"  # 15jan: fix bug in linear scaling
+__version__ = "2014-05-09 leif denby"  # 9may: fix bug default argument bug
 __author_email__ = "denis-bz-py@t-online.de"  # comments welcome, testcases most welcome
 
 #...............................................................................
